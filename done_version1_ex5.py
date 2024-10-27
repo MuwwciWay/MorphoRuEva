@@ -51,7 +51,7 @@ def extract_punctuation_sign(description):
     return None
 
 # Пример вызова функции
-file_path = 'dataset.json'
+file_path = 'input.json'
 df = parse_json(file_path)
 
 # Отключаем все логирование
@@ -283,13 +283,15 @@ def process_task_text(row):
     input_text = row['task_text']
     task_description = row['description']
 
-    # Применяем ваш алгоритм
+    # Применяем алгоритм
     processed_text, punctuation_indices = find_punctuation(input_text, task_description)
 
+    # Сравниваем метки
     label_changes = compare_labels(input_text, processed_text)
-    
-    # Возвращаем как кортеж или словарь, если нужно больше данных
-    return processed_text, label_changes  # Или любой другой формат
+
+    # Возвращаем кортеж из двух элементов всегда
+    return processed_text or "", label_changes or {}
+
 
 # Обновляем DataFrame для хранения нескольких выходных данных
 df[['model_answer', 'punctuation_indices']] = df.apply(process_task_text, axis=1, result_type='expand')
@@ -302,18 +304,34 @@ def filter_punctuation_indices(row):
     filtered_indices = [key[1] for key, value in indices.items() if value == sign]
 
     # Объединяем индексы в строку
-    return ''.join(filtered_indices)
+    result = ''.join(filtered_indices)
+
+    # Если строка пуста, возвращаем 0
+    return result if result else '0'
 
 # Применяем фильтрацию к каждому ряду датафрейма
 df['filtered_punctuation_indices'] = df.apply(filter_punctuation_indices, axis=1)
-
-# Сравнение значений и создание нового столбца 'mark'
-df['mark'] = df.apply(lambda row: f"{sum(1 for i in row['filtered_punctuation_indices'] if i in row['student_answer'])}/{len(row['student_answer'])}" if len(row['student_answer']) > 0 else "0/0", axis=1)
 
 df['procent'] = df.apply(
     lambda row: (sum(1 for i in row['filtered_punctuation_indices'] if i in row['answer']) / len(row['answer']) * 100) if len(row['answer']) > 0 else 0, 
     axis=1
 )
+
+# Округляем до ближайшего целого числа и преобразуем в целочисленный тип
+df['procent'] = df['procent'].round(0).astype(int)
+
+# Присвоение оценки на основе процента совпадений
+def assign_grade(procent):
+    if procent <= 40:
+        return 2
+    elif 40 < procent <= 60:
+        return 3
+    elif 60 < procent <= 85:
+        return 4
+    else:
+        return 5
+
+df['mark'] = df['procent'].apply(assign_grade)
 
 # Округляем до ближайшего целого числа и преобразуем в целочисленный тип
 df['procent'] = df['procent'].round(0).astype(int)
